@@ -47,11 +47,11 @@ public class DFIDModelChecker extends AbstractChecker
      * Constructor for running DFID   
      * @param resolver 
      */
-    public DFIDModelChecker(String specFile, String configFile, String metadir, final IStateWriter stateWriter, boolean deadlock, String fromChkpt,
+    public DFIDModelChecker(String specName, String configFile, String metadir, final IStateWriter stateWriter, boolean deadlock, String fromChkpt,
             boolean preprocess, FilenameToStream resolver, SpecObj specObj) throws EvalException, IOException
     {
         // call the abstract constructor
-        super(specFile, configFile, metadir, stateWriter, deadlock, fromChkpt, preprocess, resolver, specObj);
+        super(specName, configFile, metadir, stateWriter, deadlock, fromChkpt, preprocess, resolver, specObj);
 
         this.theInitStates = null;
         this.theInitFPs = null;

@@ -72,16 +72,16 @@ public class ModelChecker extends AbstractChecker
 	private boolean forceLiveCheck = false;
 
     /* Constructors  */
-    public ModelChecker(String specFile, String configFile, String metadir, final IStateWriter stateWriter, boolean deadlock, String fromChkpt,
+    public ModelChecker(String specName, String configFile, String metadir, final IStateWriter stateWriter, boolean deadlock, String fromChkpt,
             FilenameToStream resolver, SpecObj specObj, final Future<FPSet> future) throws EvalException, IOException, InterruptedException, ExecutionException {
-    	this(specFile, configFile, metadir, stateWriter, deadlock, fromChkpt, resolver, specObj);
+    	this(specName, configFile, metadir, stateWriter, deadlock, fromChkpt, resolver, specObj);
     	this.theFPSet = future.get();
     }
     
-    public ModelChecker(String specFile, String configFile, String metadir, final IStateWriter stateWriter, boolean deadlock, String fromChkpt,
+    public ModelChecker(String specName, String configFile, String metadir, final IStateWriter stateWriter, boolean deadlock, String fromChkpt,
             FilenameToStream resolver, SpecObj specObj, final FPSetConfiguration fpSetConfig) throws EvalException, IOException {
-    	this(specFile, configFile, metadir, stateWriter, deadlock, fromChkpt, resolver, specObj);
-    	this.theFPSet = FPSetFactory.getFPSet(fpSetConfig).init(TLCGlobals.getNumWorkers(), metadir, specFile);
+    	this(specName, configFile, metadir, stateWriter, deadlock, fromChkpt, resolver, specObj);
+    	this.theFPSet = FPSetFactory.getFPSet(fpSetConfig).init(TLCGlobals.getNumWorkers(), metadir, specName);
     }
     
     /**
@@ -90,11 +90,11 @@ public class ModelChecker extends AbstractChecker
      * @param resolver name resolver to be able to load files (specs and configs) from managed environments 
      * @param specObj external SpecObj added to enable to work on existing specification 
      */
-    private ModelChecker(String specFile, String configFile, String metadir, final IStateWriter stateWriter, boolean deadlock, String fromChkpt,
+    private ModelChecker(String specName, String configFile, String metadir, final IStateWriter stateWriter, boolean deadlock, String fromChkpt,
             FilenameToStream resolver, SpecObj specObj) throws EvalException, IOException
     {
         // call the abstract constructor
-        super(specFile, configFile, metadir, stateWriter, deadlock, fromChkpt, true, resolver, specObj);
+        super(specName, configFile, metadir, stateWriter, deadlock, fromChkpt, true, resolver, specObj);
 
         // SZ Feb 20, 2009: this is a selected alternative
         this.theStateQueue = new DiskStateQueue(this.metadir);

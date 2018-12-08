@@ -67,7 +67,6 @@ import util.UniqueString;
 public class Spec implements ValueConstants, ToolGlobals, Serializable
 {
 
-    public String specDir; // The spec directory.
     public String rootFile; // The root file of this spec.
     protected String configFile; // The model config file.
     protected ModelConfig config; // The model configuration.
@@ -101,10 +100,9 @@ public class Spec implements ValueConstants, ToolGlobals, Serializable
                                            // is an AXIOM.  Added 26 May 2010 by LL
     private final FilenameToStream resolver; // takes care of path to stream resolution
 
-    public Spec(String specDir, String file, FilenameToStream resolver)
+    public Spec(String file, FilenameToStream resolver)
     {
         this.processedDefs = new HashSet<OpDefNode>();
-        this.specDir = specDir;
         this.rootFile = file;
         this.rootModule = null;
         this.config = null;
@@ -132,9 +130,9 @@ public class Spec implements ValueConstants, ToolGlobals, Serializable
     }
 
     // SZ Feb 20, 2009: added support to name resolver, to be able to run outside of the tool
-    public Spec(String specDir, String specFile, String configFile, FilenameToStream resolver)
+    public Spec(String specFile, String configFile, FilenameToStream resolver)
     {
-        this(specDir, specFile, resolver);
+        this(specFile, resolver);
         // SZ Mar 9, 2009: added initialization of the modelValue class
         ModelValue.init();
         this.configFile = configFile;
@@ -164,6 +162,9 @@ public class Spec implements ValueConstants, ToolGlobals, Serializable
             {
                 MP.printMessage(EC.TLC_SANY_START);
             }
+
+            MP.printMessage(EC.TLC_VERSION, "--- root file is: " + this.rootFile);
+            
             try
             {
                 // SZ Feb 20, 2009:

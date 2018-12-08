@@ -85,13 +85,13 @@ public class Tool
 
   /**
    * Creates a new tool handle
-   * @param specDir
    * @param specFile
    * @param configFile
+   * @param resolver
    */
-  public Tool(String specDir, String specFile, String configFile, FilenameToStream resolver)
-  {
-      super(specDir, specFile, configFile, resolver);
+  public Tool(String specFile, String configFile, FilenameToStream resolver)
+  {      
+      super(specFile, configFile, resolver);
       this.actions = null;
       this.callStack = null;
   }

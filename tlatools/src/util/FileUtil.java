@@ -39,6 +39,20 @@ public class FileUtil
     public static final String separator = File.separator;
     public static final String pathSeparator = File.pathSeparator;
 
+    public static String parseDirname(String filename) {
+        int lastSep = filename.lastIndexOf(separatorChar);
+        if (lastSep == -1) {
+            // No parent directory.
+            return "";
+        }
+        return filename.substring(0, lastSep + 1);
+    }
+        
+    public static String parseBasename(String filename) {
+        int lastSep = filename.lastIndexOf(separatorChar);
+        return filename.substring(lastSep + 1);
+    }
+
     /**
      * Deletes the file or directory. Returns true iff the deletion
      * succeeds. The argument recurse forces the deletion of non-empty

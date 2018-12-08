@@ -206,37 +206,62 @@ public class TLC
     {
         TLC tlc = new TLC();
 
-        // handle parameters
-        if (tlc.handleParameters(args))
-        {
-        	final MailSender ms = new MailSender();
-        	if (MODEL_PART_OF_JAR) {
-        		tlc.setResolver(new InJarFilenameToStream(ModelInJar.PATH));
-        	} else {
-        		tlc.setResolver(new SimpleFilenameToStream());
-        	}
-        	ms.setModelName(tlc.getModelName());
-        	ms.setSpecName(tlc.getSpecName());
-
-            // call the actual processing method
-            tlc.process();
-
-            // Send logged output by email
-            boolean success = ms.send(tlc.getModuleFiles());
-            
-			// In case sending the mail has failed, we treat this as an error.
-			// This is needed when TLC runs on another host and email is
-			// the only means for the user to get access to the model checking
-			// results. 
-			// With distributed TLC and CloudDistributedTLCJob in particular,
-			// the cloud node is immediately turned off once the TLC process has
-			// finished. If we were to shutdown the node even when sending out 
-            // the email has failed, the result would be lost.
-			if (!success) {
-				System.exit(1);
-			}
+        // Try to parse parameters.
+        if (!tlc.handleParameters(args)) {
+            // This is a tool failure. We must exit with a non-zero exit
+            // code or else we will mislead system tools and scripts into
+            // thinking everything went smoothly.
+            //
+            // FIXME: handleParameters should return an error object (or
+            // null), where the error object contains an error message.
+            // This makes handleParameters a function we can test.
+            System.exit(1);
         }
-        // terminate
+
+        if (MODEL_PART_OF_JAR) {
+            // There was not spec file given, it instead exists in the
+            // .jar file being executed. So we need to use a special file
+            // resolver to parse it.
+        		tlc.setResolver(new InJarFilenameToStream(ModelInJar.PATH));
+        } else {
+            // The user passed us a spec file directly. To ensure we can
+            // recover it during semantic parsing, we must include its
+            // parent directory as a library path. See tool/Spec.java.
+            String dir = FileUtil.parseDirname(tlc.getMainFile());
+
+            String[] libraryPaths = {dir};
+        		tlc.setResolver(new SimpleFilenameToStream(libraryPaths));
+        }
+
+        // Execute TLC.
+        //
+        // FIXME: process should return a success or failure status,
+        // catching all exceptions thrown by its callees. This makes
+        // process a function we can test.
+        tlc.process();
+
+        // Send logged output by email.
+        //
+        // This is needed when TLC runs on another host and email is
+        // the only means for the user to get access to the model
+        // checking results.
+        //
+        final MailSender ms = new MailSender();
+        ms.setModelName(tlc.getModelName());
+        ms.setSpecName(tlc.getSpecName());
+        boolean mailSent = ms.send(tlc.getModuleFiles());
+
+        // Treat failure to send mail as a tool failure.
+        //
+        // With distributed TLC and CloudDistributedTLCJob in particular,
+        // the cloud node is immediately turned off once the TLC process
+        // has finished. If we were to shutdown the node even when sending
+        // out the email has failed, the result would be lost.
+        if (!mailSent) {
+            System.exit(1);
+        }
+
+        // Tool success.
         System.exit(0);
     }
 
@@ -247,505 +272,404 @@ public class TLC
      * @throws IOException 
      */
     // SZ Feb 23, 2009: added return status to indicate the error in parsing
-	public boolean handleParameters(String[] args)
+    public boolean handleParameters(String[] args)
     {
-		String dumpFile = null;
-		boolean asDot = false;
-	    boolean colorize = false;
-	    boolean actionLabels = false;
-		
+        String dumpFile = null;
+        boolean asDot = false;
+        boolean colorize = false;
+        boolean actionLabels = false;
+        
         // SZ Feb 20, 2009: extracted this method to separate the 
         // parameter handling from the actual processing
         int index = 0;
-		while (index < args.length)
-        {
-            if (args[index].equals("-simulate"))
-            {
+        while (index < args.length) {
+            if (args[index].equals("-simulate")) {
                 isSimulate = true;
                 index++;
-                
-				// Simulation args can be:
-				// file=/path/to/file,num=4711 or num=4711,file=/path/to/file or num=4711 or
-				// file=/path/to/file
-				// "file=..." and "num=..." are only relevant for simulation which is why they
-				// are args to "-simulate".
-				if (index + 1 < args.length && (args[index].contains("file=") || args[index].contains("num="))) {
-					final String[] simArgs = args[index].split(",");
-					index++; // consume simulate args
-					for (String arg : simArgs) {
-						if (arg.startsWith("num=")) {
-							traceNum = Integer.parseInt(arg.replace("num=", ""));
-						} else if (arg.startsWith("file=")) {
-							traceFile = arg.replace("file=", "");
-						}
-					}
-				}
-            } else if (args[index].equals("-modelcheck"))
-            {
+                        
+                // Simulation args can be:
+                // file=/path/to/file,num=4711 or num=4711,file=/path/to/file or num=4711 or
+                // file=/path/to/file
+                // "file=..." and "num=..." are only relevant for simulation which is why they
+                // are args to "-simulate".
+                if (index + 1 < args.length && (args[index].contains("file=") || args[index].contains("num="))) {
+                    final String[] simArgs = args[index].split(",");
+                    index++; // consume simulate args
+                    for (String arg : simArgs) {
+                        if (arg.startsWith("num=")) {
+                            traceNum = Integer.parseInt(arg.replace("num=", ""));
+                        } else if (arg.startsWith("file=")) {
+                            traceFile = arg.replace("file=", "");
+                        }
+                    }
+                }
+            } else if (args[index].equals("-modelcheck")) {
                 isSimulate = false;
                 index++;
-            } else if (args[index].equals("-difftrace"))
-            {
+            } else if (args[index].equals("-difftrace")) {
                 index++;
                 TLCGlobals.printDiffsOnly = true;
-            } else if (args[index].equals("-deadlock"))
-            {
+            } else if (args[index].equals("-deadlock")) {
                 index++;
                 deadlock = false;
-            } else if (args[index].equals("-cleanup"))
-            {
+            } else if (args[index].equals("-cleanup")) {
                 index++;
                 cleanup = true;
-            } else if (args[index].equals("-nowarning"))
-            {
+            } else if (args[index].equals("-nowarning")) {
                 index++;
                 TLCGlobals.warn = false;
-            } else if (args[index].equals("-gzip"))
-            {
+            } else if (args[index].equals("-gzip")) {
                 index++;
                 TLCGlobals.useGZIP = true;
-            } else if (args[index].equals("-terse"))
-            {
+            } else if (args[index].equals("-terse")) {
                 index++;
                 Value.expand = false;
-            } else if (args[index].equals("-continue"))
-            {
+            } else if (args[index].equals("-continue")) {
                 index++;
                 TLCGlobals.continuation = true;
-            } else if (args[index].equals("-view"))
-            {
+            } else if (args[index].equals("-view")) {
                 index++;
                 TLCGlobals.useView = true;
-            } else if (args[index].equals("-debug"))
-            {
+            } else if (args[index].equals("-debug")) {
                 index++;
                 TLCGlobals.debug = true;
-            } else if (args[index].equals("-tool"))
-            {
+            } else if (args[index].equals("-tool")) {
                 index++;
                 TLCGlobals.tool = true;
-            } else if (args[index].equals("-help"))
-            {
+            } else if (args[index].equals("-help")) {
                 printUsage();
                 return false;
-            } else if (args[index].equals("-lncheck"))
-            {
+            } else if (args[index].equals("-lncheck")) {
                 index++;
-                if (index < args.length)
-                {
+                if (index < args.length) {
                     TLCGlobals.lnCheck = args[index].toLowerCase();
                     index++;
-                } else
-                {
+                } else {
                     printErrorMsg("Error: expect a strategy such as final for -lncheck option.");
                     return false;
                 }
-           } else if (args[index].equals("-config"))
-            {
+            } else if (args[index].equals("-config")) {
                 index++;
-                if (index < args.length)
-                {
+                if (index < args.length) {
                     configFile = args[index];
                     int len = configFile.length();
-                    if (configFile.startsWith(".cfg", len - 4))
-                    {
+                    if (configFile.startsWith(".cfg", len - 4)) {
                         configFile = configFile.substring(0, len - 4);
                     }
                     index++;
-                } else
-                {
+                } else {
                     printErrorMsg("Error: expect a file name for -config option.");
                     return false;
                 }
-            } else if (args[index].equals("-dump"))
-            {
+            } else if (args[index].equals("-dump")) {
                 index++; // consume "-dump".
-                if (index + 1 < args.length && args[index].startsWith("dot"))
-                {
-                	final String dotArgs = args[index].toLowerCase();
-                	index++; // consume "dot...".
-                	asDot = true;
-                	colorize = dotArgs.contains("colorize");
-                	actionLabels = dotArgs.contains("actionlabels");
-					dumpFile = getDumpFile(args[index++], ".dot");
-                }
-                else if (index < args.length)
-                {
-					dumpFile = getDumpFile(args[index++], ".dump");
-                } else
-                {
+                if (index + 1 < args.length && args[index].startsWith("dot")) {
+                    final String dotArgs = args[index].toLowerCase();
+                    index++; // consume "dot...".
+                    asDot = true;
+                    colorize = dotArgs.contains("colorize");
+                    actionLabels = dotArgs.contains("actionlabels");
+                    dumpFile = getDumpFile(args[index++], ".dot");
+                } else if (index < args.length) {
+                    dumpFile = getDumpFile(args[index++], ".dump");
+                } else {
                     printErrorMsg("Error: A file name for dumping states required.");
                     return false;
                 }
-            } else if (args[index].equals("-coverage"))
-            {
+            } else if (args[index].equals("-coverage")) {
                 index++;
-                if (index < args.length)
-                {
-                    try
-                    {
+                if (index < args.length) {
+                    try {
                         TLCGlobals.coverageInterval = Integer.parseInt(args[index]) * 60 * 1000;
-                        if (TLCGlobals.coverageInterval < 0)
-                        {
+                        if (TLCGlobals.coverageInterval < 0) {
                             printErrorMsg("Error: expect a nonnegative integer for -coverage option.");
                             return false;
                         }
                         index++;
-                    } catch (NumberFormatException e)
-                    {
-                        
+                    } catch (NumberFormatException e) {                        
                         printErrorMsg("Error: An integer for coverage report interval required." + " But encountered "
                                 + args[index]);
                         return false;
                     }
-                } else
-                {
+                } else {
                     printErrorMsg("Error: coverage report interval required.");
                     return false;
                 }
-            } else if (args[index].equals("-checkpoint"))
-            {
+            } else if (args[index].equals("-checkpoint")) {
                 index++;
-                if (index < args.length)
-                {
-                    try
-                    {
+                if (index < args.length) {
+                    try {
                         TLCGlobals.chkptDuration = Integer.parseInt(args[index]) * 1000 * 60;
-                        if (TLCGlobals.chkptDuration < 0)
-                        {
+                        if (TLCGlobals.chkptDuration < 0) {
                             printErrorMsg("Error: expect a nonnegative integer for -checkpoint option.");
                             return false;
                         }
                         
                         index++;
-                    } catch (Exception e)
-                    {
+                    } catch (Exception e) {
                         printErrorMsg("Error: An integer for checkpoint interval is required. But encountered " + args[index]);
                         return false;
                     }
-                } else
-                {
+                } else {
                     printErrorMsg("Error: checkpoint interval required.");
                     return false;
                 }
-            } else if (args[index].equals("-depth"))
-            {
+            } else if (args[index].equals("-depth")) {
                 index++;
-                if (index < args.length)
-                {
-                    try
-                    {
+                if (index < args.length) {
+                    try {
                         traceDepth = Integer.parseInt(args[index]);
                         index++;
-                    } catch (Exception e)
-                    {
+                    } catch (Exception e) {
                         printErrorMsg("Error: An integer for trace length required. But encountered " + args[index]);
                         return false;
                     }
-                } else
-                {
+                } else {
                     printErrorMsg("Error: trace length required.");
                     return false;
                 }
-            } else if (args[index].equals("-seed"))
-            {
+            } else if (args[index].equals("-seed")) {
                 index++;
-                if (index < args.length)
-                {
-                    try
-                    {
+                if (index < args.length) {
+                    try {
                         seed = Long.parseLong(args[index]);
                         index++;
                         noSeed = false;
-                    } catch (Exception e)
-                    {
+                    } catch (Exception e) {
                         printErrorMsg("Error: An integer for seed required. But encountered " + args[index]);
                         return false;
                     }
-                } else
-                {
+                } else {
                     printErrorMsg("Error: seed required.");
                     return false;
                 }
-            } else if (args[index].equals("-aril"))
-            {
+            } else if (args[index].equals("-aril")) {
                 index++;
-                if (index < args.length)
-                {
-                    try
-                    {
+                if (index < args.length) {
+                    try {
                         aril = Long.parseLong(args[index]);
                         index++;
-                    } catch (Exception e)
-                    {
+                    } catch (Exception e) {
                         printErrorMsg("Error: An integer for aril required. But encountered " + args[index]);
                         return false;
                     }
-                } else
-                {
+                } else {
                     printErrorMsg("Error: aril required.");
                     return false;
                 }
-            } else if (args[index].equals("-maxSetSize"))
-            {
+            } else if (args[index].equals("-maxSetSize")) {
                 index++;
-                if (index < args.length)
-                {
-                    try
-                    {
+                if (index < args.length) {
+                    try {
                         int bound = Integer.parseInt(args[index]);
                         
-                    	// make sure it's in valid range
-                    	if (!TLCGlobals.isValidSetSize(bound)) {
-                    		int maxValue = Integer.MAX_VALUE;
-                    		printErrorMsg("Error: Value in interval [0, " + maxValue + "] for maxSetSize required. But encountered " + args[index]);
-                    		return false;
-                    	}
-                    	TLCGlobals.setBound = bound;
-
-                    	index++;
-                    } catch (Exception e)
-                    {
+                        // make sure it's in valid range
+                        if (!TLCGlobals.isValidSetSize(bound)) {
+                            int maxValue = Integer.MAX_VALUE;
+                            printErrorMsg("Error: Value in interval [0, " + maxValue + "] for maxSetSize required. But encountered " + args[index]);
+                            return false;
+                        }
+                        TLCGlobals.setBound = bound;
+                        
+                        index++;
+                    } catch (Exception e) {
                         printErrorMsg("Error: An integer for maxSetSize required. But encountered " + args[index]);
                         return false;
                     }
-                } else
-                {
+                } else {
                     printErrorMsg("Error: maxSetSize required.");
                     return false;
                 }
-            } else if (args[index].equals("-recover"))
-            {
+            } else if (args[index].equals("-recover")) {
                 index++;
-                if (index < args.length)
-                {
+                if (index < args.length) {
                     fromChkpt = args[index++] + FileUtil.separator;
-                } else
-                {
+                } else {
                     printErrorMsg("Error: need to specify the metadata directory for recovery.");
                     return false;
                 }
-            } else if (args[index].equals("-metadir"))
-            {
+            } else if (args[index].equals("-metadir")) {
                 index++;
-                if (index < args.length)
-                {
+                if (index < args.length) {
                     TLCGlobals.metaDir = args[index++] + FileUtil.separator;
-                } else
-                {
+                } else {
                     printErrorMsg("Error: need to specify the metadata directory.");
                     return false;
                 }
-            } else if (args[index].equals("-userFile"))
-            {
+            } else if (args[index].equals("-userFile")) {
                 index++;
-                if (index < args.length)
-                {
+                if (index < args.length) {
                     try {
-						// Most problems will only show when TLC eventually tries
-						// to write to the file.
-						tlc2.module.TLC.OUTPUT = new BufferedWriter(new FileWriter(new File(args[index++])));
-        			} catch (IOException e) {
+                        // Most problems will only show when TLC eventually tries
+                        // to write to the file.
+                        tlc2.module.TLC.OUTPUT = new BufferedWriter(new FileWriter(new File(args[index++])));
+                    } catch (IOException e) {
                         printErrorMsg("Error: Failed to create user output log file.");
                         return false;
-        			}
+                    }
                 } else
-                {
-                    printErrorMsg("Error: need to specify the full qualified file.");
-                    return false;
-                }
-            } else if (args[index].equals("-workers"))
-            {
-                index++;
-                if (index < args.length)
-                {
-                    try
                     {
+                        printErrorMsg("Error: need to specify the full qualified file.");
+                        return false;
+                    }
+            } else if (args[index].equals("-workers")) {
+                index++;
+                if (index < args.length) {
+                    try {
                         int num = Integer.parseInt(args[index]);
-                        if (num < 1)
-                        {
+                        if (num < 1) {
                             printErrorMsg("Error: at least one worker required.");
                             return false;
                         }
                         TLCGlobals.setNumWorkers(num);
                         index++;
-                    } catch (Exception e)
-                    {
+                    } catch (Exception e) {
                         printErrorMsg("Error: worker number required. But encountered " + args[index]);
                         return false;
                     }
-                } else
-                {
+                } else {
                     printErrorMsg("Error: expect an integer for -workers option.");
                     return false;
                 }
-            } else if (args[index].equals("-dfid"))
-            {
+            } else if (args[index].equals("-dfid")) {
                 index++;
-                if (index < args.length)
-                {
-                    try
-                    {
+                if (index < args.length) {
+                    try {
                         TLCGlobals.DFIDMax = Integer.parseInt(args[index]);
-                        if (TLCGlobals.DFIDMax < 0)
-                        {
+                        if (TLCGlobals.DFIDMax < 0) {
                             printErrorMsg("Error: expect a nonnegative integer for -dfid option.");
                             return false;
                         }
                         index++;
-                    } catch (Exception e)
-                    {
+                    } catch (Exception e) {
                         printErrorMsg("Errorexpect a nonnegative integer for -dfid option. " + "But encountered "
                                 + args[index]);
                         return false;
                     }
-                } else
-                {
+                } else {
                     printErrorMsg("Error: expect a nonnegative integer for -dfid option.");
                     return false;
                 }
-            } else if (args[index].equals("-fp"))
-            {
+            } else if (args[index].equals("-fp")) {
                 index++;
-                if (index < args.length)
-                {
-                    try
-                    {
+                if (index < args.length) {
+                    try {
                         fpIndex = Integer.parseInt(args[index]);
-                        if (fpIndex < 0 || fpIndex >= FP64.Polys.length)
-                        {
+                        if (fpIndex < 0 || fpIndex >= FP64.Polys.length) {
                             printErrorMsg("Error: The number for -fp must be between 0 and " + (FP64.Polys.length - 1)
                                     + " (inclusive).");
                             return false;
                         }
                         index++;
-                    } catch (Exception e)
-                    {
+                    } catch (Exception e) {
                         printErrorMsg("Error: A number for -fp is required. But encountered " + args[index]);
                         return false;
                     }
-                } else
-                {
+                } else {
                     printErrorMsg("Error: expect an integer for -workers option.");
                     return false;
                 }
-            } else if (args[index].equals("-fpmem"))
-            {
+            } else if (args[index].equals("-fpmem")) {
                 index++;
-                if (index < args.length)
-                {
-                    try
-                    {
-                    	// -fpmem can be used in two ways:
-                    	// a) to set the relative memory to be used for fingerprints (being machine independent)
-                    	// b) to set the absolute memory to be used for fingerprints
-                    	//
-                    	// In order to set memory relatively, a value in the domain [0.0, 1.0] is interpreted as a fraction.
-                    	// A value in the [2, Double.MaxValue] domain allocates memory absolutely.
-                    	//
-						// Independently of relative or absolute mem allocation,
-						// a user cannot allocate more than JVM heap space
-						// available. Conversely there is the lower hard limit TLC#MinFpMemSize.
+                if (index < args.length) {
+                    try {
+                        // -fpmem can be used in two ways:
+                        // a) to set the relative memory to be used for fingerprints (being machine independent)
+                        // b) to set the absolute memory to be used for fingerprints
+                        //
+                        // In order to set memory relatively, a value in the domain [0.0, 1.0] is interpreted as a fraction.
+                        // A value in the [2, Double.MaxValue] domain allocates memory absolutely.
+                        //
+                        // Independently of relative or absolute mem allocation,
+                        // a user cannot allocate more than JVM heap space
+                        // available. Conversely there is the lower hard limit TLC#MinFpMemSize.
                         double fpMemSize = Double.parseDouble(args[index]);
                         if (fpMemSize < 0) {
                             printErrorMsg("Error: An positive integer or a fraction for fpset memory size/percentage required. But encountered " + args[index]);
                             return false;
                         } else if (fpMemSize > 1) {
-							// For legacy reasons we allow users to set the
-							// absolute amount of memory. If this is the case,
-							// we know the user intends to allocate all 100% of
-							// the absolute memory to the fpset.
-                    		ToolIO.out
-            				.println("Using -fpmem with an abolute memory value has been deprecated. " +
-            						"Please allocate memory for the TLC process via the JVM mechanisms " +
-            						"and use -fpmem to set the fraction to be used for fingerprint storage.");
-                        	fpSetConfiguration.setMemory((long) fpMemSize);
-                        	fpSetConfiguration.setRatio(1.0d);
+                            // For legacy reasons we allow users to set the
+                            // absolute amount of memory. If this is the case,
+                            // we know the user intends to allocate all 100% of
+                            // the absolute memory to the fpset.
+                            ToolIO.out
+                                .println("Using -fpmem with an abolute memory value has been deprecated. " +
+                                         "Please allocate memory for the TLC process via the JVM mechanisms " +
+                                         "and use -fpmem to set the fraction to be used for fingerprint storage.");
+                            fpSetConfiguration.setMemory((long) fpMemSize);
+                            fpSetConfiguration.setRatio(1.0d);
                         } else {
-                    		fpSetConfiguration.setRatio(fpMemSize);
+                            fpSetConfiguration.setRatio(fpMemSize);
                         }
                         index++;
-                    } catch (Exception e)
-                    {
+                    } catch (Exception e) {
                         printErrorMsg("Error: An positive integer or a fraction for fpset memory size/percentage required. But encountered " + args[index]);
                         return false;
                     }
-                } else
-                {
+                } else {
                     printErrorMsg("Error: fpset memory size required.");
                     return false;
                 }
-            } else if (args[index].equals("-fpbits"))
-            {
+            } else if (args[index].equals("-fpbits")) {
                 index++;
-                if (index < args.length)
-                {
-                    try
-                    {
-                    	int fpBits = Integer.parseInt(args[index]);
-
-                    	// make sure it's in valid range
-                    	if (!FPSet.isValid(fpBits)) {
-                    		printErrorMsg("Error: Value in interval [0, 30] for fpbits required. But encountered " + args[index]);
-                    		return false;
-                    	}
-                    	fpSetConfiguration.setFpBits(fpBits);
+                if (index < args.length) {
+                    try {
+                        int fpBits = Integer.parseInt(args[index]);
+                        
+                        // make sure it's in valid range
+                        if (!FPSet.isValid(fpBits)) {
+                            printErrorMsg("Error: Value in interval [0, 30] for fpbits required. But encountered " + args[index]);
+                            return false;
+                        }
+                        fpSetConfiguration.setFpBits(fpBits);
                     	
                         index++;
-                    } catch (Exception e)
-                    {
+                    } catch (Exception e) {
                         printErrorMsg("Error: An integer for fpbits required. But encountered " + args[index]);
                         return false;
                     }
-                } else
-                {
+                } else {
                     printErrorMsg("Error: fpbits required.");
                     return false;
                 }
-            } else
-            {
-                if (args[index].charAt(0) == '-')
-                {
+            } else {
+                if (args[index].charAt(0) == '-') {
                     printErrorMsg("Error: unrecognized option: " + args[index]);
                     return false;
                 }
-                if (mainFile != null)
-                {
+                if (mainFile != null) {
                     printErrorMsg("Error: more than one input files: " + mainFile + " and " + args[index]);
                     return false;
                 }
                 mainFile = args[index++];
                 int len = mainFile.length();
-                if (mainFile.startsWith(".tla", len - 4))
-                {
+                if (mainFile.startsWith(".tla", len - 4)) {
                     mainFile = mainFile.substring(0, len - 4);
                 }
             }
         }
+
+        MP.printMessage(EC.TLC_VERSION, "--- main file is: " + mainFile);
         
-        if (mainFile == null)
-        {
-			// command line omitted name of spec file, take this as an
-			// indicator to check the in-jar model/ folder for a spec.
-			// If a spec is found, use it instead.
-			if (ModelInJar.hasModel()) {
-				MODEL_PART_OF_JAR = true;
-				ModelInJar.loadProperties();
-				TLCGlobals.tool = true; // always run in Tool mode (to parse output by Toolbox later)
-				TLCGlobals.chkptDuration = 0; // never use checkpoints with distributed TLC (highly inefficient)
-				mainFile = "MC";
-			} else {
-				printErrorMsg("Error: Missing input TLA+ module.");
-				return false;
-			}
-        }
-        if (configFile == null)
-        {
+        if (mainFile == null) {
+            // command line omitted name of spec file, take this as an
+            // indicator to check the in-jar model/ folder for a spec.
+            // If a spec is found, use it instead.
+            if (ModelInJar.hasModel()) {
+                MODEL_PART_OF_JAR = true;
+                ModelInJar.loadProperties();
+                TLCGlobals.tool = true; // always run in Tool mode (to parse output by Toolbox later)
+                TLCGlobals.chkptDuration = 0; // never use checkpoints with distributed TLC (highly inefficient)
+                mainFile = "MC";
+            } else {
+                printErrorMsg("Error: Missing input TLA+ module.");
+                return false;
+            }
+        } if (configFile == null) {
             configFile = mainFile;
         }
 
-        if (cleanup && fromChkpt == null)
-        {
+        if (cleanup && fromChkpt == null) {
             // clean up the states directory only when not recovering
             FileUtil.deleteDir(TLCGlobals.metaRoot, true);
         }
@@ -753,43 +677,46 @@ public class TLC
         startTime = System.currentTimeMillis();
 
         // Check if mainFile is an absolute or relative file system path. If it is
-		// absolute, the parent gets used as TLC's meta directory (where it stores
-		// states...). Otherwise, no meta dir is set causing states etc. to be stored in
-		// the current directory.
+        // absolute, the parent gets used as TLC's meta directory (where it stores
+        // states...). Otherwise, no meta dir is set causing states etc. to be stored in
+        // the current directory.
+        //
+        // FIXME: This should also assert that mainFile exists on the filesystem and is
+        // consistent with the resolver used with the TLC instance.
         final File f = new File(mainFile);
-    	metadir = FileUtil.makeMetaDir(new Date(startTime), f.isAbsolute() ? f.getParent() : "", fromChkpt);
-    	
+
+        MP.printMessage(EC.TLC_VERSION, "--- main file is absolute: " + f.isAbsolute());
+        
+        metadir = FileUtil.makeMetaDir(new Date(startTime), f.isAbsolute() ? f.getParent() : "", fromChkpt);
+        
         if (dumpFile != null) {
-        	if (dumpFile.startsWith("${metadir}")) {
-				// prefix dumpfile with the known value of this.metadir. There
-				// is no way to determine the actual value of this.metadir
-				// before TLC startup and thus it's impossible to make the
-				// dumpfile end up in the metadir if desired.
-        		dumpFile = dumpFile.replace("${metadir}", metadir);
-        	}
-        	try {
-        		if (asDot) {
-        			this.stateWriter = new DotStateWriter(dumpFile, colorize, actionLabels);
-        		} else {
-        			this.stateWriter = new StateWriter(dumpFile);
-        		}
-        	} catch (IOException e) {
-				printErrorMsg(String.format("Error: Given file name %s for dumping states invalid.", dumpFile));
-				return false;
-        	}
+            if (dumpFile.startsWith("${metadir}")) {
+                // prefix dumpfile with the known value of this.metadir. There
+                // is no way to determine the actual value of this.metadir
+                // before TLC startup and thus it's impossible to make the
+                // dumpfile end up in the metadir if desired.
+                dumpFile = dumpFile.replace("${metadir}", metadir);
+            }
+            try {
+                if (asDot) {
+                    this.stateWriter = new DotStateWriter(dumpFile, colorize, actionLabels);
+                } else {
+                    this.stateWriter = new StateWriter(dumpFile);
+                }
+            } catch (IOException e) {
+                printErrorMsg(String.format("Error: Given file name %s for dumping states invalid.", dumpFile));
+                return false;
+            }
         }
         
-        if (TLCGlobals.debug) 
-        {
-		StringBuffer buffer = new StringBuffer("TLC arguments:");
-		for (int i=0; i < args.length; i++)
-		{
-		    buffer.append(args[i]);
-		    if (i < args.length - 1) 
-		    {
-		        buffer.append(" ");
-		    }
-		}
+        if (TLCGlobals.debug) {
+            StringBuffer buffer = new StringBuffer("TLC arguments:");
+            for (int i=0; i < args.length; i++) {
+                buffer.append(args[i]);
+                if (i < args.length - 1) {
+                    buffer.append(" ");
+                }
+            }
             buffer.append("\n");
             DebugPrinter.print(buffer.toString());
         }
@@ -798,20 +725,20 @@ public class TLC
         printWelcome();
         
         return true;
-	}
+    }
 
-	/**
-	 * Require a $suffix file extension unless already given. It is not clear why
-	 * this is enforced.
-	 */
-	private static String getDumpFile(String dumpFile, String suffix) {
-		if (dumpFile.endsWith(suffix)) {
-			return dumpFile;
-		}
-		return dumpFile + suffix;
-	}
+    /**
+     * Require a $suffix file extension unless already given. It is not clear why
+     * this is enforced.
+     */
+    private static String getDumpFile(String dumpFile, String suffix) {
+        if (dumpFile.endsWith(suffix)) {
+            return dumpFile;
+        }
+        return dumpFile + suffix;
+    }
 
-	/**
+    /**
      * The processing method
      */
     public void process()
@@ -827,84 +754,79 @@ public class TLC
         try
         {
             // Initialize:
-            if (fromChkpt != null)
-            {
+            if (fromChkpt != null) {
                 // We must recover the intern var table as early as possible
                 UniqueString.internTbl.recover(fromChkpt);
             }
             FP64.Init(fpIndex);
 
+            final TLCRuntime tlcRuntime = TLCRuntime.getInstance();
+            final long offHeapMemory = tlcRuntime.getNonHeapPhysicalMemory() / 1024L / 1024L;
+            final String arch = tlcRuntime.getArchitecture().name();
             
-    		final TLCRuntime tlcRuntime = TLCRuntime.getInstance();
-    		final long offHeapMemory = tlcRuntime.getNonHeapPhysicalMemory() / 1024L / 1024L;
-    		final String arch = tlcRuntime.getArchitecture().name();
-    		
-    		final Runtime runtime = Runtime.getRuntime();
-    		final long heapMemory = runtime.maxMemory() / 1024L / 1024L;
-    		final String cores = Integer.toString(runtime.availableProcessors());
-
-    		final String vendor = System.getProperty("java.vendor");
-    		final String version = System.getProperty("java.version");
-
-    		final String osName = System.getProperty("os.name");
-    		final String osVersion = System.getProperty("os.version");
-    		final String osArch = System.getProperty("os.arch");
-    		
-    		final RandomGenerator rng = new RandomGenerator();
+            final Runtime runtime = Runtime.getRuntime();
+            final long heapMemory = runtime.maxMemory() / 1024L / 1024L;
+            final String cores = Integer.toString(runtime.availableProcessors());
+            
+            final String vendor = System.getProperty("java.vendor");
+            final String version = System.getProperty("java.version");
+            
+            final String osName = System.getProperty("os.name");
+            final String osVersion = System.getProperty("os.version");
+            final String osArch = System.getProperty("os.arch");
+            
+            // The basename name of the root spec.
+            String specName = FileUtil.parseBasename(mainFile);
+            
+            final RandomGenerator rng = new RandomGenerator();
             // Start checking:
-            if (isSimulate)
-            {
+            if (isSimulate) {
                 // random simulation
-                if (noSeed)
-                {
+                if (noSeed) {
                     seed = rng.nextLong();
                     rng.setSeed(seed);
-                } else
-                {
+                } else {
                     rng.setSeed(seed, aril);
                 }
-				MP.printMessage(EC.TLC_MODE_SIMU,
-						new String[] { String.valueOf(seed), String.valueOf(TLCGlobals.getNumWorkers()),
-								TLCGlobals.getNumWorkers() == 1 ? "" : "s", cores, osName, osVersion, osArch, vendor,
-								version, arch, Long.toString(heapMemory), Long.toString(offHeapMemory) });
-				Simulator simulator = new Simulator(mainFile, configFile, traceFile, deadlock, traceDepth, 
-                        traceNum, rng, seed, true, resolver, specObj, TLCGlobals.getNumWorkers());
+                MP.printMessage(EC.TLC_MODE_SIMU,
+                                new String[] { String.valueOf(seed), String.valueOf(TLCGlobals.getNumWorkers()),
+                                               TLCGlobals.getNumWorkers() == 1 ? "" : "s", cores, osName, osVersion, osArch, vendor,
+                                               version, arch, Long.toString(heapMemory), Long.toString(offHeapMemory) });
+                Simulator simulator = new Simulator(specName, configFile, traceFile, deadlock, traceDepth, 
+                                                    traceNum, rng, seed, true, resolver, specObj, TLCGlobals.getNumWorkers());
                 TLCGlobals.simulator = simulator;
-// The following statement moved to Spec.processSpec by LL on 10 March 2011               
-//                MP.printMessage(EC.TLC_STARTING);
+                // The following statement moved to Spec.processSpec by LL on 10 March 2011               
+                //                MP.printMessage(EC.TLC_STARTING);
                 instance = simulator;
                 simulator.simulate();
-            } else
-            {
-				if (noSeed) {
+            } else {
+                if (noSeed) {
                     seed = rng.nextLong();
-				}
-				EnumerableValue.setRandom(seed);
-            	
-				final String[] parameters = new String[] { String.valueOf(TLCGlobals.getNumWorkers()),
-						TLCGlobals.getNumWorkers() == 1 ? "" : "s", cores, osName, osVersion, osArch, vendor, version,
-						arch, Long.toString(heapMemory), Long.toString(offHeapMemory),
-						Long.toString(EnumerableValue.getRandomSeed()), Integer.toString(fpIndex) };
-
-            	// model checking
-        		AbstractChecker mc = null;
-                if (TLCGlobals.DFIDMax == -1)
-                {
-					MP.printMessage(EC.TLC_MODE_MC, parameters);
-					mc = new ModelChecker(mainFile, configFile, metadir, stateWriter, deadlock, fromChkpt, resolver,
-							specObj, FPSetFactory.getFPSetInitialized(fpSetConfiguration, metadir, mainFile));
-					modelCheckerMXWrapper = new ModelCheckerMXWrapper((ModelChecker) mc, this);
-                } else
-                {
-					MP.printMessage(EC.TLC_MODE_MC_DFS, parameters);
-					mc = new DFIDModelChecker(mainFile, configFile, metadir, stateWriter, deadlock, fromChkpt, true, resolver, specObj);
                 }
+                EnumerableValue.setRandom(seed);
+                
+                final String[] parameters = new String[] { String.valueOf(TLCGlobals.getNumWorkers()),
+                                                           TLCGlobals.getNumWorkers() == 1 ? "" : "s", cores, osName, osVersion, osArch, vendor, version,
+                                                           arch, Long.toString(heapMemory), Long.toString(offHeapMemory),
+                                                           Long.toString(EnumerableValue.getRandomSeed()), Integer.toString(fpIndex) };
+                
+                // model checking
+                AbstractChecker mc = null;
+                if (TLCGlobals.DFIDMax == -1) {
+                    MP.printMessage(EC.TLC_MODE_MC, parameters);
+                    mc = new ModelChecker(specName, configFile, metadir, stateWriter, deadlock, fromChkpt, resolver,
+                                          specObj, FPSetFactory.getFPSetInitialized(fpSetConfiguration, metadir, mainFile));
+                    modelCheckerMXWrapper = new ModelCheckerMXWrapper((ModelChecker) mc, this);
+                } else {
+                    MP.printMessage(EC.TLC_MODE_MC_DFS, parameters);
+                    mc = new DFIDModelChecker(specName, configFile, metadir, stateWriter, deadlock, fromChkpt, true, resolver, specObj);
+                }
+                
                 TLCGlobals.mainChecker = mc;
-// The following statement moved to Spec.processSpec by LL on 10 March 2011               
-//                MP.printMessage(EC.TLC_STARTING);
+                // The following statement moved to Spec.processSpec by LL on 10 March 2011               
+                //                MP.printMessage(EC.TLC_STARTING);
                 instance = mc;
                 mc.modelCheck();
-                
             }
         } catch (Throwable e)
         {
@@ -1055,21 +977,24 @@ public class TLC
     /**
      * 
      */
-    private void printUsage()
-    {
+    private void printUsage() {
         printWelcome();
         MP.printMessage(EC.TLC_USAGE);
     }
 
-    FPSetConfiguration getFPSetConfiguration() {
-    	return fpSetConfiguration;
+    public String getMainFile() {
+        return mainFile;
+    }
+    
+    public FPSetConfiguration getFPSetConfiguration() {
+        return fpSetConfiguration;
     }
 
-	public String getModelName() {
-		return System.getProperty(MailSender.MODEL_NAME, this.mainFile);
-	}
+    public String getModelName() {
+        return System.getProperty(MailSender.MODEL_NAME, this.mainFile);
+    }
 	
-	public String getSpecName() {
-		return System.getProperty(MailSender.SPEC_NAME, this.mainFile);
-	}
+    public String getSpecName() {
+        return System.getProperty(MailSender.SPEC_NAME, this.mainFile);
+    }
 }

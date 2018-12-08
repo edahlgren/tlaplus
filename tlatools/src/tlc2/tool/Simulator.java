@@ -38,88 +38,83 @@ import util.FilenameToStream;
 
 public class Simulator implements Cancelable {
 
-	public static boolean EXPERIMENTAL_LIVENESS_SIMULATION = Boolean
-			.getBoolean(Simulator.class.getName() + ".experimentalLiveness");
+    public static boolean EXPERIMENTAL_LIVENESS_SIMULATION = Boolean
+        .getBoolean(Simulator.class.getName() + ".experimentalLiveness");
 
-	/* Constructors */
-	/**
-	 * SZ Feb 20, 2009: added the possibility to pass the SpecObject, this is
-	 * compatibility constructor
-	 * 
-	 * @throws IOException
-	 *
-	 * @deprecated use
-	 *             {@link Simulator#Simulator(String, String, String, boolean, int, long, RandomGenerator, long, boolean, FilenameToStream, SpecObj)}
-	 *             instead and pass the <code>null</code> as SpecObj
-	 */
-	public Simulator(String specFile, String configFile, String traceFile, boolean deadlock, int traceDepth,
-			long traceNum, RandomGenerator rng, long seed, boolean preprocess, FilenameToStream resolver)
-			throws IOException {
-		this(specFile, configFile, traceFile, deadlock, traceDepth, traceNum, rng, seed, preprocess, resolver, null);
-	}
+    /* Constructors */
+    /**
+     * SZ Feb 20, 2009: added the possibility to pass the SpecObject, this is
+     * compatibility constructor
+     * 
+     * @throws IOException
+     *
+     * @deprecated use
+     *             {@link Simulator#Simulator(String, String, String, boolean, int, long, RandomGenerator, long, boolean, FilenameToStream, SpecObj)}
+     *             instead and pass the <code>null</code> as SpecObj
+     */
+    public Simulator(String specName, String configFile, String traceFile, boolean deadlock, int traceDepth,
+                     long traceNum, RandomGenerator rng, long seed, boolean preprocess, FilenameToStream resolver)
+        throws IOException {
+        this(specName, configFile, traceFile, deadlock, traceDepth, traceNum, rng, seed, preprocess, resolver, null);
+    }
+    
+    public Simulator(String specName, String configFile, String traceFile, boolean deadlock, int traceDepth,
+                     long traceNum, RandomGenerator rng, long seed, boolean preprocess, FilenameToStream resolver,
+                     SpecObj specObj) throws IOException {
+        // Default to 1 worker thread if not specified.
+        this(specName, configFile, traceFile, deadlock, traceDepth, traceNum, rng, seed, preprocess, resolver, specObj,
+             1);
+    }
 
-	public Simulator(String specFile, String configFile, String traceFile, boolean deadlock, int traceDepth,
-			long traceNum, RandomGenerator rng, long seed, boolean preprocess, FilenameToStream resolver,
-			SpecObj specObj) throws IOException {
-		// Default to 1 worker thread if not specified.
-		this(specFile, configFile, traceFile, deadlock, traceDepth, traceNum, rng, seed, preprocess, resolver, specObj,
-				1);
-	}
+    // SZ Feb 20, 2009: added the possibility to pass the SpecObject
+    public Simulator(String specName, String configFile, String traceFile,
+                     boolean deadlock, int traceDepth, long traceNum,
+                     RandomGenerator rng, long seed, boolean preprocess,
+                     FilenameToStream resolver, SpecObj specObj,
+                     int numWorkers) throws IOException {
 
-	// SZ Feb 20, 2009: added the possibility to pass the SpecObject
-	public Simulator(String specFile, String configFile, String traceFile, boolean deadlock, int traceDepth,
-			long traceNum, RandomGenerator rng, long seed, boolean preprocess, FilenameToStream resolver,
-			SpecObj specObj, int numWorkers) throws IOException {
-		int lastSep = specFile.lastIndexOf(FileUtil.separatorChar);
-		String specDir = (lastSep == -1) ? "" : specFile.substring(0, lastSep + 1);
-		specFile = specFile.substring(lastSep + 1);
-
-		// SZ Feb 24, 2009: setup the user directory
-		// SZ Mar 5, 2009: removed it again because of the bug in simulator
-		// ToolIO.setUserDir(specDir);
-
-		this.tool = new Tool(specDir, specFile, configFile, resolver);
-		this.tool.init(preprocess, specObj); // parse and process the spec
-
-		this.checkDeadlock = deadlock;
-		this.checkLiveness = !this.tool.livenessIsTrue();
-		this.invariants = this.tool.getInvariants();
-		if (traceDepth != -1) {
-			// this.actionTrace = new Action[traceDepth]; // SZ: never read
-			// locally
-			this.traceDepth = traceDepth;
-		} else {
-			// this.actionTrace = new Action[0]; // SZ: never read locally
-			this.traceDepth = Long.MAX_VALUE;
-		}
-		this.traceFile = traceFile;
-		this.traceNum = traceNum;
-		this.rng = rng;
-		this.seed = seed;
-		this.aril = 0;
-		this.astCounts = new ObjLongTable<SemanticNode>(10);
-		this.numWorkers = numWorkers;
-		// Initialization for liveness checking
-		if (this.checkLiveness) {
-			if (EXPERIMENTAL_LIVENESS_SIMULATION) {
-				final String tmpDir = System.getProperty("java.io.tmpdir");
-				liveCheck = new LiveCheck(this.tool, new Action[0], tmpDir, new DummyBucketStatistics());
-			} else {
-				liveCheck = new LiveCheck1(this.tool);
-			}
-		} else {
-			liveCheck = new NoOpLiveCheck(tool, specDir);
-		}
-	}
-
-	/* Fields */
-	private final ILiveCheck liveCheck;
-	private final Tool tool;
-	private final Action[] invariants; // the invariants to be checked
-	private final boolean checkDeadlock; // check deadlock?
-	private final boolean checkLiveness; // check liveness?
-
-	// The total number of states/traces generated by all workers. May be written to
+      this.tool = new Tool(specName, configFile, resolver);
+      this.tool.init(preprocess, specObj); // parse and process the spec
+      
+      this.checkDeadlock = deadlock;
+      this.checkLiveness = !this.tool.livenessIsTrue();
+      this.invariants = this.tool.getInvariants();
+      if (traceDepth != -1) {
+          // this.actionTrace = new Action[traceDepth]; // SZ: never read
+          // locally
+          this.traceDepth = traceDepth;
+      } else {
+          // this.actionTrace = new Action[0]; // SZ: never read locally
+          this.traceDepth = Long.MAX_VALUE;
+      }
+      this.traceFile = traceFile;
+      this.traceNum = traceNum;
+      this.rng = rng;
+      this.seed = seed;
+      this.aril = 0;
+      this.astCounts = new ObjLongTable<SemanticNode>(10);
+      this.numWorkers = numWorkers;
+      // Initialization for liveness checking
+      if (this.checkLiveness) {
+          if (EXPERIMENTAL_LIVENESS_SIMULATION) {
+              final String tmpDir = System.getProperty("java.io.tmpdir");
+              liveCheck = new LiveCheck(this.tool, new Action[0], tmpDir, new DummyBucketStatistics());
+          } else {
+              liveCheck = new LiveCheck1(this.tool);
+          }
+      } else {
+          liveCheck = new NoOpLiveCheck(tool, specDir);
+      }
+    }
+    
+    /* Fields */
+    private final ILiveCheck liveCheck;
+    private final Tool tool;
+    private final Action[] invariants; // the invariants to be checked
+    private final boolean checkDeadlock; // check deadlock?
+    private final boolean checkLiveness; // check liveness?
+    
+    // The total number of states/traces generated by all workers. May be written to
 	// concurrently, so we use a LongAdder to reduce potential contention.
 	private final LongAdder numOfGenStates = new LongAdder();
 	private final LongAdder numOfGenTraces = new LongAdder();
